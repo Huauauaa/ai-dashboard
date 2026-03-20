@@ -482,8 +482,8 @@ function RotatingGlobe({ kpi, events, connections }) {
   )
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="mx-auto mt-2 flex w-full max-w-xl items-center justify-between gap-3">
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="mt-2 flex w-full items-center justify-between gap-3">
         {kpi.map((item) => (
           <div key={item.label} className="flex-1 rounded-xl border border-slate-800 bg-slate-900/90 p-3">
             <p className="text-xs text-slate-500">{item.label}</p>
@@ -492,12 +492,12 @@ function RotatingGlobe({ kpi, events, connections }) {
         ))}
       </div>
 
-      <div className="relative mx-auto mt-4 flex w-full flex-1 items-center justify-center">
-        <div className="pointer-events-none absolute h-96 w-96 rounded-full bg-sky-500/10 blur-3xl" />
-        <div ref={chartRef} className="relative h-[360px] w-[360px]" />
+      <div className="relative mt-4 flex min-h-[520px] w-full flex-1 items-center justify-center">
+        <div className="pointer-events-none absolute h-[72%] w-[72%] rounded-full bg-sky-500/10 blur-3xl" />
+        <div ref={chartRef} className="relative h-full w-full" />
       </div>
 
-      <div className="mx-auto mt-2 grid w-full max-w-xl grid-cols-5 gap-2 text-center text-xs">
+      <div className="mt-2 grid w-full grid-cols-5 gap-2 text-center text-xs">
         {validNodes.map((event) => (
           <div key={event.name} className="rounded-lg border border-slate-800 bg-slate-900/70 p-2">
             <p className="text-slate-500">{event.name}</p>
@@ -544,7 +544,11 @@ function App() {
           </SectionCard>
         </div>
 
-        <SectionCard title="三维地球" subtitle="拖拽旋转，滚轮缩放，支持自动旋转">
+        <SectionCard
+          title="三维地球"
+          subtitle="拖拽旋转，滚轮缩放，支持自动旋转"
+          className="h-full min-h-0"
+        >
           <RotatingGlobe
             kpi={globe.kpi}
             events={globe.events}
