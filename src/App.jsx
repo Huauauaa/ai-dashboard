@@ -313,9 +313,49 @@ function RadarChart({ indicators, values }) {
   )
 }
 
-function RotatingGlobe({ kpi, events }) {
+function buildArcPath(from, to) {
+  const dx = to.x - from.x
+  const dy = to.y - from.y
+  const distance = Math.hypot(dx, dy)
+  const normalX = distance === 0 ? 0 : -dy / distance
+  const normalY = distance === 0 ? 0 : dx / distance
+  const lift = Math.min(36, Math.max(16, distance * 0.22))
+  const controlX = (from.x + to.x) / 2 + normalX * lift
+  const controlY = (from.y + to.y) / 2 + normalY * lift
+  return `M ${from.x} ${from.y} Q ${controlX} ${controlY} ${to.x} ${to.y}`
+}
+
+function RotatingGlobe({ kpi, events, connections }) {
   const [rotation, setRotation] = useState({ x: 18, y: 0 })
   const dragRef = useRef(null)
+  const nodes = useMemo(
+    () =>
+      events.map((event, index) => ({
+        ...event,
+        x: event.x ?? 88 + index * 52,
+        y: event.y ?? 88 + (index % 2) * 96,
+      })),
+    [events],
+  )
+  const nodeMap = useMemo(
+    () => new Map(nodes.map((node) => [node.name, node])),
+    [nodes],
+  )
+  const routePaths = useMemo(
+    () =>
+      (connections ?? [])
+        .map(([fromName, toName]) => {
+          const from = nodeMap.get(fromName)
+          const to = nodeMap.get(toName)
+          if (!from || !to) return null
+          return {
+            key: `${fromName}-${toName}`,
+            path: buildArcPath(from, to),
+          }
+        })
+        .filter(Boolean),
+    [connections, nodeMap],
+  )
 
   useEffect(() => {
     let frameId = 0
@@ -387,6 +427,40 @@ function RotatingGlobe({ kpi, events }) {
           >
             <div className="globe-continents" />
             <div className="globe-grid" />
+            <svg viewBox="0 0 360 360" className="globe-overlay" aria-hidden="true">
+              {routePaths.map((route, index) => (
+                <g key={route.key}>
+                  <path d={route.path} className="flight-path-base" />
+                  <path
+                    d={route.path}
+                    className="flight-path-active"
+                    style={{ animationDelay: `${index * 0.45}s` }}
+                  />
+                </g>
+              ))}
+
+              {nodes.map((node, index) => (
+                <g key={node.name}>
+                  <circle cx={node.x} cy={node.y} r="3.2" className="globe-point-core" />
+                  <circle cx={node.x} cy={node.y} r="4.8" className="globe-point-pulse">
+                    <animate
+                      attributeName="r"
+                      values="4.8;12;4.8"
+                      dur="2.6s"
+                      begin={`${index * 0.35}s`}
+                      repeatCount="indefinite"
+                    />
+                    <animate
+                      attributeName="opacity"
+                      values="0.85;0.15;0.85"
+                      dur="2.6s"
+                      begin={`${index * 0.35}s`}
+                      repeatCount="indefinite"
+                    />
+                  </circle>
+                </g>
+              ))}
+            </svg>
             <div className="globe-glow" />
           </div>
         </div>
@@ -440,7 +514,11 @@ function App() {
         </div>
 
         <SectionCard title="中心地球" subtitle="拖拽可旋转，松开后自动旋转">
-          <RotatingGlobe kpi={globe.kpi} events={globe.events} />
+          <RotatingGlobe
+            kpi={globe.kpi}
+            events={globe.events}
+            connections={globe.connections}
+          />
         </SectionCard>
 
         <div className="space-y-4">
