@@ -1,10 +1,25 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
+import * as echarts from 'echarts'
+import 'echarts-gl'
 import dashboardData from './mock-data/dashboard.json'
 
 const cardClass =
   'rounded-2xl border border-slate-800/90 bg-slate-900/75 p-4 shadow-lg shadow-slate-950/40 backdrop-blur'
 
 const pieColors = ['#38bdf8', '#14b8a6', '#818cf8', '#a78bfa', '#f59e0b']
+const globeBaseTexture =
+  'https://fastly.jsdelivr.net/gh/apache/echarts-website@asf-site/examples/data-gl/asset/world.topo.bathy.200401.jpg'
+const globeHeightTexture =
+  'https://fastly.jsdelivr.net/gh/apache/echarts-website@asf-site/examples/data-gl/asset/bathymetry_bw_composite_4k.jpg'
+const globeEnvironmentTexture =
+  'https://fastly.jsdelivr.net/gh/apache/echarts-website@asf-site/examples/data-gl/asset/starfield.jpg'
+const cityCoordinateMap = {
+  上海: [121.4737, 31.2304],
+  伦敦: [-0.1278, 51.5074],
+  纽约: [-74.006, 40.7128],
+  悉尼: [151.2093, -33.8688],
+  圣保罗: [-46.6333, -23.5505],
+}
 
 function SectionCard({ title, subtitle, children, className = '' }) {
   return (
@@ -313,33 +328,25 @@ function RadarChart({ indicators, values }) {
   )
 }
 
-function buildArcPath(from, to) {
-  const dx = to.x - from.x
-  const dy = to.y - from.y
-  const distance = Math.hypot(dx, dy)
-  const normalX = distance === 0 ? 0 : -dy / distance
-  const normalY = distance === 0 ? 0 : dx / distance
-  const lift = Math.min(36, Math.max(16, distance * 0.22))
-  const controlX = (from.x + to.x) / 2 + normalX * lift
-  const controlY = (from.y + to.y) / 2 + normalY * lift
-  return `M ${from.x} ${from.y} Q ${controlX} ${controlY} ${to.x} ${to.y}`
-}
-
 function RotatingGlobe({ kpi, events, connections }) {
-  const [rotation, setRotation] = useState({ x: 18, y: 0 })
-  const dragRef = useRef(null)
+  const chartRef = useRef(null)
+  const chartInstanceRef = useRef(null)
   const nodes = useMemo(
     () =>
-      events.map((event, index) => ({
+      events.map((event) => ({
         ...event,
-        x: event.x ?? 88 + index * 52,
-        y: event.y ?? 88 + (index % 2) * 96,
+        coord:
+          Number.isFinite(event.lng) && Number.isFinite(event.lat)
+            ? [event.lng, event.lat]
+            : cityCoordinateMap[event.name],
       })),
     [events],
   )
+
+  const validNodes = useMemo(() => nodes.filter((node) => Array.isArray(node.coord)), [nodes])
   const nodeMap = useMemo(
-    () => new Map(nodes.map((node) => [node.name, node])),
-    [nodes],
+    () => new Map(validNodes.map((node) => [node.name, node])),
+    [validNodes],
   )
   const routePaths = useMemo(
     () =>
@@ -350,7 +357,10 @@ function RotatingGlobe({ kpi, events, connections }) {
           if (!from || !to) return null
           return {
             key: `${fromName}-${toName}`,
-            path: buildArcPath(from, to),
+            coords: [from.coord, to.coord],
+            value: Math.round((from.value + to.value) / 2),
+            fromName,
+            toName,
           }
         })
         .filter(Boolean),
@@ -358,48 +368,121 @@ function RotatingGlobe({ kpi, events, connections }) {
   )
 
   useEffect(() => {
-    let frameId = 0
+    if (!chartRef.current) return
 
-    const animate = () => {
-      setRotation((prev) => {
-        if (dragRef.current) return prev
-        return { ...prev, y: (prev.y + 0.18) % 360 }
-      })
-      frameId = requestAnimationFrame(animate)
-    }
+    const chart = chartInstanceRef.current ?? echarts.init(chartRef.current)
+    chartInstanceRef.current = chart
 
-    frameId = requestAnimationFrame(animate)
-    return () => cancelAnimationFrame(frameId)
-  }, [])
-
-  const onPointerDown = (event) => {
-    event.currentTarget.setPointerCapture(event.pointerId)
-    dragRef.current = {
-      pointerId: event.pointerId,
-      startX: event.clientX,
-      startY: event.clientY,
-      baseX: rotation.x,
-      baseY: rotation.y,
-    }
-  }
-
-  const onPointerMove = (event) => {
-    const drag = dragRef.current
-    if (!drag || drag.pointerId !== event.pointerId) return
-
-    const deltaX = event.clientX - drag.startX
-    const deltaY = event.clientY - drag.startY
-    setRotation({
-      x: Math.max(-30, Math.min(30, drag.baseX - deltaY * 0.2)),
-      y: drag.baseY + deltaX * 0.3,
+    chart.setOption({
+      backgroundColor: 'transparent',
+      tooltip: {
+        trigger: 'item',
+        formatter: (params) => {
+          if (params.seriesType === 'scatter3D') {
+            return `${params.name}<br/>告警值：${params.value[2]}`
+          }
+          if (params.seriesType === 'lines3D') {
+            return `${params.data.fromName} → ${params.data.toName}<br/>强度：${params.data.value}`
+          }
+          return params.name
+        },
+      },
+      globe: {
+        baseTexture: globeBaseTexture,
+        heightTexture: globeHeightTexture,
+        environment: globeEnvironmentTexture,
+        displacementScale: 0.03,
+        shading: 'realistic',
+        realisticMaterial: {
+          roughness: 0.85,
+          metalness: 0,
+        },
+        light: {
+          ambient: {
+            intensity: 0.6,
+          },
+          main: {
+            intensity: 1,
+          },
+        },
+        viewControl: {
+          autoRotate: true,
+          autoRotateSpeed: 8,
+          autoRotateAfterStill: 3,
+          distance: 180,
+          alpha: 25,
+          beta: 160,
+          minDistance: 110,
+          maxDistance: 280,
+          minAlpha: -35,
+          maxAlpha: 75,
+        },
+      },
+      series: [
+        {
+          type: 'lines3D',
+          coordinateSystem: 'globe',
+          blendMode: 'lighter',
+          lineStyle: {
+            width: 1.4,
+            color: '#38bdf8',
+            opacity: 0.45,
+          },
+          effect: {
+            show: true,
+            trailWidth: 2.4,
+            trailLength: 0.24,
+            trailOpacity: 0.8,
+            trailColor: '#67e8f9',
+            constantSpeed: 7,
+          },
+          data: routePaths.map((path) => ({
+            coords: path.coords,
+            value: path.value,
+            fromName: path.fromName,
+            toName: path.toName,
+          })),
+        },
+        {
+          type: 'scatter3D',
+          coordinateSystem: 'globe',
+          blendMode: 'lighter',
+          symbol: 'circle',
+          symbolSize: (value) => 8 + (value[2] / 100) * 10,
+          itemStyle: {
+            color: '#22d3ee',
+            opacity: 0.95,
+          },
+          emphasis: {
+            itemStyle: {
+              color: '#7dd3fc',
+            },
+          },
+          data: validNodes.map((node) => ({
+            name: node.name,
+            value: [...node.coord, node.value],
+          })),
+        },
+      ],
     })
-  }
 
-  const onPointerUp = (event) => {
-    if (dragRef.current?.pointerId === event.pointerId) {
-      dragRef.current = null
+    const onResize = () => {
+      chart.resize()
     }
-  }
+
+    window.addEventListener('resize', onResize)
+    return () => {
+      window.removeEventListener('resize', onResize)
+    }
+  }, [routePaths, validNodes])
+
+  useEffect(
+    () => () => {
+      chartInstanceRef.current?.dispose()
+      chartInstanceRef.current = null
+    },
+    [],
+  )
 
   return (
     <div className="flex h-full flex-col">
@@ -414,60 +497,11 @@ function RotatingGlobe({ kpi, events, connections }) {
 
       <div className="relative mx-auto mt-4 flex w-full flex-1 items-center justify-center">
         <div className="pointer-events-none absolute h-96 w-96 rounded-full bg-sky-500/10 blur-3xl" />
-        <div
-          className="globe-wrapper relative h-[360px] w-[360px] cursor-grab active:cursor-grabbing"
-          onPointerDown={onPointerDown}
-          onPointerMove={onPointerMove}
-          onPointerUp={onPointerUp}
-          onPointerCancel={onPointerUp}
-        >
-          <div
-            className="globe-shell"
-            style={{ transform: `rotateX(${rotation.x}deg) rotateY(${rotation.y}deg)` }}
-          >
-            <div className="globe-continents" />
-            <div className="globe-grid" />
-            <svg viewBox="0 0 360 360" className="globe-overlay" aria-hidden="true">
-              {routePaths.map((route, index) => (
-                <g key={route.key}>
-                  <path d={route.path} className="flight-path-base" />
-                  <path
-                    d={route.path}
-                    className="flight-path-active"
-                    style={{ animationDelay: `${index * 0.45}s` }}
-                  />
-                </g>
-              ))}
-
-              {nodes.map((node, index) => (
-                <g key={node.name}>
-                  <circle cx={node.x} cy={node.y} r="3.2" className="globe-point-core" />
-                  <circle cx={node.x} cy={node.y} r="4.8" className="globe-point-pulse">
-                    <animate
-                      attributeName="r"
-                      values="4.8;12;4.8"
-                      dur="2.6s"
-                      begin={`${index * 0.35}s`}
-                      repeatCount="indefinite"
-                    />
-                    <animate
-                      attributeName="opacity"
-                      values="0.85;0.15;0.85"
-                      dur="2.6s"
-                      begin={`${index * 0.35}s`}
-                      repeatCount="indefinite"
-                    />
-                  </circle>
-                </g>
-              ))}
-            </svg>
-            <div className="globe-glow" />
-          </div>
-        </div>
+        <div ref={chartRef} className="relative h-[360px] w-[360px]" />
       </div>
 
       <div className="mx-auto mt-2 grid w-full max-w-xl grid-cols-5 gap-2 text-center text-xs">
-        {events.map((event) => (
+        {validNodes.map((event) => (
           <div key={event.name} className="rounded-lg border border-slate-800 bg-slate-900/70 p-2">
             <p className="text-slate-500">{event.name}</p>
             <p className="mt-1 font-semibold text-sky-300">{event.value}</p>
@@ -513,7 +547,7 @@ function App() {
           </SectionCard>
         </div>
 
-        <SectionCard title="三维地球" subtitle="拖拽可旋转，松开后自动旋转">
+        <SectionCard title="三维地球" subtitle="拖拽旋转，滚轮缩放，支持自动旋转">
           <RotatingGlobe
             kpi={globe.kpi}
             events={globe.events}
