@@ -513,7 +513,7 @@ function App() {
           </SectionCard>
         </div>
 
-        <SectionCard title="中心地球" subtitle="拖拽可旋转，松开后自动旋转">
+        <SectionCard title="三维地球" subtitle="拖拽可旋转，松开后自动旋转">
           <RotatingGlobe
             kpi={globe.kpi}
             events={globe.events}
