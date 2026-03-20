@@ -212,15 +212,12 @@ function sectorPath(cx, cy, radius, startAngle, endAngle) {
 
 function PieChart({ items }) {
   const total = items.reduce((sum, item) => sum + item.value, 0)
-  let current = -Math.PI / 2
-
-  const segments = items.map((item, index) => {
-    const delta = (item.value / total) * Math.PI * 2
-    const start = current
-    const end = start + delta
-    current = end
-    return { ...item, start, end, color: pieColors[index % pieColors.length] }
-  })
+  const segments = items.reduce((acc, item, index) => {
+    const start = acc.at(-1)?.end ?? -Math.PI / 2
+    const end = start + (item.value / total) * Math.PI * 2
+    acc.push({ ...item, start, end, color: pieColors[index % pieColors.length] })
+    return acc
+  }, [])
 
   return (
     <div className="flex items-center gap-4">
